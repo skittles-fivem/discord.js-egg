@@ -1,0 +1,151 @@
+require("dotenv/config");
+const { Client, MessageEmbed } = require("discord.js");
+const { cpus, uptime } = require("os");
+const { cpuUsage } = require("os-utils");
+const { info } = require("node-os-utils").mem;
+const { check } = require("diskspace");
+const si = require("systeminformation");
+const { writeFileSync } = require("fs");
+const { formatDuration, intervalToDuration } = require("date-fns");
+const axios = require("axios");
+
+const operations = [];
+let locationData = undefined;
+let data = require("./data.json");
+
+function fetchLocation() {
+    axios.get("https://ipapi.co/json/").then(res => {
+        locationData = res.data;
+    });
+}
+
+fetchLocation();
+
+function addOperation(operation) {
+    const wasEmpty = operations.length === 0;
+
+    operations.push(operation);
+    if (wasEmpty) {
+        doOperation();
+    }
+}
+
+async function doOperation() {
+    const operation = operations.shift();
+
+    if (operation) {
+        await operation();
+
+        setTimeout(doOperation, 1000);
+    }
+}
+
+async function generateStatsEmbed() {
+    const memInfo = await info();
+    const total = memInfo.totalMemMb * 1024 * 1024;
+    const usedMem = memInfo.usedMemMb * 1024 * 1024;
+    const cpuName = cpus()[0].model;
+    const cpuAmount = cpus().length;
+
+    /**
+     * @type {number}
+     */
+    const cpuUsagePerc = await (new Promise(res => {
+        cpuUsage(percentage => {
+            res(percentage);
+        })
+    }));
+
+    /**
+     * @type {Parameters<Parameters<check>[1]>[1]}
+     */
+    const disk = await (new Promise(resolve => {
+        check(__dirname.slice(0, 1), (err, res) => {
+            if (err) throw err;
+
+            resolve(res);
+        });
+    }))
+
+    const { rIO, wIO, tIO } = await si.fsStats();
+
+    const networkStats = await si.networkStats();
+ let rxSpeed = networkStats[0].rx_sec;
+  let txSpeed = networkStats[0].tx_sec;
+  let speedUnit = 'bps';
+
+  if (rxSpeed >= 1000000 || txSpeed >= 1000000) {
+    rxSpeed /= 1000000;
+    txSpeed /= 1000000;
+    speedUnit = 'Mbps';
+  } else if (rxSpeed >= 1000 || txSpeed >= 1000) {
+    rxSpeed /= 1000;
+    txSpeed /= 1000;
+    speedUnit = 'Kbps';
+  }
+
+    return new MessageEmbed()
+        .setColor("3CAAFF")
+        .setAuthor(`Statistics of ${process.env.ENVIRONMENT_NAME}`)
+        .addField("CPU", `\`${cpuName}\`\n${(cpuUsagePerc * (100 * cpuAmount)).toFixed(2)}% / ${100 * cpuAmount}%`, false)
+        .addField("Memory Usage", `${((usedMem / total) * 100).toFixed(2)}% / 100%`, true)
+        .addField("Disk Usage", `${((disk.used / disk.total) * 100).toFixed(2)}% / 100%`, true)
+        .addField("Disk Speed", `${rIO} reads/sec, ${wIO} writes/sec, ${tIO} transfers/sec`, true)
+        .addField("Network Usage", `${rxSpeed ? rxSpeed.toFixed(2) : 'N/A'} ${speedUnit} received, ${txSpeed ? txSpeed.toFixed(2) : 'N/A'} ${speedUnit} sent`, true)
+        .addField("Uptime", formatDuration(intervalToDuration({ start: 0, end: uptime() * 1000 })), false)
+        .addField("Location", locationData ? `${locationData.region ? `${locationData.region}, ` : ""}${locationData.country_name}` : "Unknown", false)
+        .setFooter("Last updated on")
+        .setTimestamp();
+}
+
+const client = new Client({
+    intents: ["GUILD_MESSAGES", "GUILDS"]
+});
+
+client.on("ready", () => {
+    console.log("Bot is ready!");
+console.log("Buyer Username: skittles");
+console.log("Resource Version: 1.2");
+console.log("Resource Name: Discord Static Node Pro Pterodactyl");
+console.log("Transaction ID: 48X70684PX497251M");
+
+    setInterval(async () => {
+        if (!data.channelId || !data.messageId) return;
+
+        const embed = await generateStatsEmbed();
+
+        client.channels.cache.get(data.channelId)?.messages.fetch(data.messageId).catch(() => undefined).then(message => {
+            message?.edit({ embeds: [embed] }).catch(() => null).then(msg => {
+                if (msg) {
+                    console.log("Updated statistics message!");
+                }
+            });
+        });
+    }, 8000);
+});
+
+client.on("messageCreate", async message => {
+    if (message.author.bot || (message.channel.type === "DM")) return;
+
+    if (message.content.toLowerCase() === process.env.INIT_MESSAGE?.toLowerCase() && message.member.permissions.has("ADMINISTRATOR")) {
+        client.channels.cache.get(data.channelId)?.messages.fetch(data.messageId).then(message => {
+            message?.delete().catch(() => null);
+        });
+
+        const embed = await generateStatsEmbed();
+        const msg = await message.channel.send({ embeds: [embed] });
+
+        data = {
+            channelId: message.channel.id,
+            messageId: msg.id
+        }
+
+        addOperation(() => {
+            writeFileSync("./data.json", JSON.stringify(data, null, 4));
+        })
+    }
+});
+
+client.login();
+
+
