@@ -90,7 +90,6 @@ async function generateStatsEmbed() {
         .addField("CPU", `\`${cpuName}\`\n${(cpuUsagePerc * (100 * cpuAmount)).toFixed(2)}% / ${100 * cpuAmount}%`, false)
         .addField("Memory Usage", `${((usedMem / total) * 100).toFixed(2)}% / 100%`, true)
         .addField("Disk Usage", `${((disk.used / disk.total) * 100).toFixed(2)}% / 100%`, true)
-        .addField("Disk Speed", `${rIO} reads/sec, ${wIO} writes/sec, ${tIO} transfers/sec`, true)
         .addField("Network Usage", `${rxSpeed ? rxSpeed.toFixed(2) : 'N/A'} ${speedUnit} received, ${txSpeed ? txSpeed.toFixed(2) : 'N/A'} ${speedUnit} sent`, true)
         .addField("Uptime", formatDuration(intervalToDuration({ start: 0, end: uptime() * 1000 })), false)
         .addField("Location", locationData ? `${locationData.region ? `${locationData.region}, ` : ""}${locationData.country_name}` : "Unknown", false)
